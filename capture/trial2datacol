@@ -1,0 +1,85 @@
+
+#include <WiFi.h>
+#include <WebServer.h>
+#include <math.h>
+
+
+const char* ssid = "Sayonika";
+const char* password = "12345678";
+
+WebServer server(80);
+
+const int N_SENSORS = 5;               // number of flex sensors
+const int PINS[N_SENSORS] = {32, 33, 34, 35, 36};  // adjust GPIOs
+// const float R_PULLUP = 10000.0;        // fixed resistor (10k)
+// const float VREF = 3.3;
+// const int ADC_MAX = 4095;
+const int SAMPLES_PER_CAPTURE = 6;
+
+void handleCapture() {
+  String label = server.arg("label");
+  if (label == "") label = "unknown";
+
+  float readings[SAMPLES_PER_CAPTURE][N_SENSORS];
+  float avg[N_SENSORS] = {0};
+
+  for (int i = 0; i < SAMPLES_PER_CAPTURE; i++) {
+    for (int j = 0; j < N_SENSORS; j++) {
+      int adc = analogRead(PINS[j]);
+      // float vOut = (adc * VREF) / ADC_MAX;
+      // float rFlex = (R_PULLUP * (VREF - vOut)) / vOut;
+      // readings[i][j] = rFlex;
+      // avg[j] += rFlex;
+      readings[i][j]=adc;
+      avg[j]+=adc;
+    }
+    delay(200);  // small delay between samples
+  }
+
+  for (int j = 0; j < N_SENSORS; j++) avg[j] = round(avg[j] / SAMPLES_PER_CAPTURE);
+
+
+  // Create JSON response
+  String json = "{\"label\":\"" + label + "\",\"samples\":[";
+  for (int i = 0; i < SAMPLES_PER_CAPTURE; i++) {
+    json += "[";
+    for (int j = 0; j < N_SENSORS; j++) {
+      json += String(readings[i][j], 2);
+      if (j < N_SENSORS - 1) json += ",";
+    }
+    json += "]";
+    if (i < SAMPLES_PER_CAPTURE - 1) json += ",";
+  }
+  json += "],\"average\":[";
+  for (int j = 0; j < N_SENSORS; j++) {
+    json += String(avg[j], 2);
+    if (j < N_SENSORS - 1) json += ",";
+  }
+  json += "]}";
+
+  server.send(200, "application/json", json);
+}
+
+void setup() {
+  Serial.begin(115200);
+  WiFi.begin(ssid, password);
+  Serial.print("Connecting to WiFi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nConnected to WiFi");
+  Serial.println(WiFi.localIP());
+
+  for (int i = 0; i < N_SENSORS; i++) {
+    pinMode(PINS[i], INPUT);
+  }
+
+  server.on("/capture", handleCapture);
+  server.begin();
+  Serial.println("HTTP server started");
+}
+
+void loop() {
+  server.handleClient();
+}
